@@ -1,3 +1,4 @@
+//413262304 周汶宸 413262330 劉品禎
 // Dino Game v0+ (terminal, Linux/WSL) - ASCII sprites
 // Controls: SPACE = jump, r = restart, q = quit
 // Build: make
