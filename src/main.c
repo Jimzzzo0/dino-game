@@ -16,6 +16,8 @@
 int asm_dec(int x);
 unsigned asm_add_u32(unsigned a, unsigned b);
 int asm_aabb_overlap(int dl, int dr, int dt, int db, int ol, int or_, int ot, int ob);
+void *asm_memset(void *dst, int value, long count);
+void asm_draw_ground(char *row, int ch, long n);
 
 // ---------------- Terminal raw + nonblocking ----------------
 static struct termios g_old_term;
@@ -52,7 +54,11 @@ static bool poll_key(char *out)
 {
     char c;
     ssize_t n = read(STDIN_FILENO, &c, 1);
-    if (n == 1) { *out = c; return true; }
+    if (n == 1)
+    {
+        *out = c;
+        return true;
+    }
     return false;
 }
 
@@ -127,12 +133,12 @@ static Sprite rand_cactus(void)
 {
     if (rand() % 2 == 0)
     {
-        Sprite s = { CACTUS_SPR_S, CACTUS_S_W, CACTUS_S_H };
+        Sprite s = {CACTUS_SPR_S, CACTUS_S_W, CACTUS_S_H};
         return s;
     }
     else
     {
-        Sprite s = { CACTUS_SPR_B, CACTUS_B_W, CACTUS_B_H };
+        Sprite s = {CACTUS_SPR_B, CACTUS_B_W, CACTUS_B_H};
         return s;
     }
 }
@@ -146,9 +152,11 @@ static void blit(char canvas[H][W], int x0, int y0, const char **spr, int sw, in
         {
             int cx = x0 + x;
             int cy = y0 + y;
-            if (cx < 0 || cx >= W || cy < 0 || cy >= H) continue;
+            if (cx < 0 || cx >= W || cy < 0 || cy >= H)
+                continue;
             char p = spr[y][x];
-            if (p != ' ') canvas[cy][cx] = p;
+            if (p != ' ')
+                canvas[cy][cx] = p;
         }
     }
 }
@@ -157,12 +165,13 @@ static void blit(char canvas[H][W], int x0, int y0, const char **spr, int sw, in
 static bool pixel_collide(int ax, int ay, const char **aspr, int aw, int ah,
                           int bx, int by, const char **bspr, int bw, int bh)
 {
-    int left   = (ax > bx) ? ax : bx;
-    int right  = ((ax + aw - 1) < (bx + bw - 1)) ? (ax + aw - 1) : (bx + bw - 1);
-    int top    = (ay > by) ? ay : by;
+    int left = (ax > bx) ? ax : bx;
+    int right = ((ax + aw - 1) < (bx + bw - 1)) ? (ax + aw - 1) : (bx + bw - 1);
+    int top = (ay > by) ? ay : by;
     int bottom = ((ay + ah - 1) < (by + bh - 1)) ? (ay + ah - 1) : (by + bh - 1);
 
-    if (left > right || top > bottom) return false;
+    if (left > right || top > bottom)
+        return false;
 
     for (int y = top; y <= bottom; y++)
     {
@@ -170,7 +179,8 @@ static bool pixel_collide(int ax, int ay, const char **aspr, int aw, int ah,
         {
             char ap = aspr[y - ay][x - ax];
             char bp = bspr[y - by][x - bx];
-            if (ap != ' ' && bp != ' ') return true;
+            if (ap != ' ' && bp != ' ')
+                return true;
         }
     }
     return false;
@@ -179,7 +189,8 @@ static bool pixel_collide(int ax, int ay, const char **aspr, int aw, int ah,
 // 顯示生命值（用 ♥ 比 emoji 更穩）
 static void print_lives(int lives)
 {
-    for (int i = 0; i < lives; i++) printf("♥");
+    for (int i = 0; i < lives; i++)
+        printf("♥");
 }
 
 static void draw(int dino_top_y,
@@ -192,11 +203,13 @@ static void draw(int dino_top_y,
     // ✅ 每一幀清畫面 + 游標回左上，避免「每幀往下印」
     write(STDOUT_FILENO, "\033[H", sizeof("\033[H") - 1);
 
-
     char canvas[H][W];
-    for (int y = 0; y < H; y++)
-        for (int x = 0; x < W; x++)
-            canvas[y][x] = ' ';
+
+    // ✅ 用 x86 asm 清空整個畫布
+    asm_memset(&canvas[0][0], ' ', (long)(H * W));
+
+    // ✅ 用 x86 asm 畫地板
+    asm_draw_ground(&canvas[GROUND_Y][0], '_', (long)W);
 
     // cloud (background)
     blit(canvas, cloud_x, cloud_y, CLOUD_SPR, CLOUD_W, CLOUD_H);
@@ -218,29 +231,54 @@ static void draw(int dino_top_y,
 
     // dino (無敵時閃爍)
     bool draw_dino = true;
-    if (inv_frames > 0) draw_dino = (inv_frames % 2 == 0);
+    if (inv_frames > 0)
+        draw_dino = (inv_frames % 2 == 0);
 
     if (draw_dino)
         blit(canvas, 6, dino_top_y, DINO_SPR, DINO_W, DINO_H);
 
     // print border
-    putchar('+'); for (int x = 0; x < W; x++) putchar('-'); puts("+");
+    putchar('+');
+    for (int x = 0; x < W; x++)
+        putchar('-');
+    puts("+");
     for (int y = 0; y < H; y++)
     {
         putchar('|');
-        for (int x = 0; x < W; x++) putchar(canvas[y][x]);
+        for (int x = 0; x < W; x++)
+            putchar(canvas[y][x]);
         puts("|");
     }
-    putchar('+'); for (int x = 0; x < W; x++) putchar('-'); puts("+");
+    putchar('+');
+    for (int x = 0; x < W; x++)
+        putchar('-');
+    puts("+");
 
-    // HUD（確保只有印一次，不會多出奇怪尾巴）
+    // --- HUD line (fixed width overwrite) ---
+    char hud[160];
+    int n = snprintf(hud, sizeof(hud),
+                     "Score: %u   Lives: ", score);
+
+    int pos = n;
+    for (int i = 0; i < lives && pos < (int)sizeof(hud) - 1; i++)
+        hud[pos++] = '\x03'; // 先塞占位，等下我們直接用 printf 印 hearts（或你也可以直接塞 '♥'）
+
+    hud[pos] = '\0';
+
+    // 先把這行清空（回到行首 + 清到行尾）
+    printf("\r\033[K");
+
+    // 再印真正的 HUD（推薦：直接一次印完）
     printf("Score: %u   Lives: ", score);
     print_lives(lives);
-    printf("   ");
-    if (inv_frames > 0) printf("[INV %d]   ", inv_frames);
-    printf("(SPACE=jump, r=restart, q=quit)\n");
 
-    if (game_over) puts("GAME OVER! Press 'r' to restart.");
+    if (inv_frames > 0)
+        printf("   [INV %d]", inv_frames);
+
+    printf("   (SPACE=jump, r=restart, q=quit)\n");
+
+    if (game_over)
+        puts("GAME OVER! Press 'r' to restart.");
     fflush(stdout);
 }
 
@@ -268,7 +306,7 @@ int main(void)
 
     // Obstacle 2 (triangle), activates after score > 500
     int obs2_x = W + 20;
-    Sprite obs2 = { TRI_SPR, TRI_W, TRI_H };
+    Sprite obs2 = {TRI_SPR, TRI_W, TRI_H};
     bool obs2_active = false;
 
     // Cloud
@@ -292,8 +330,10 @@ int main(void)
 
         while (poll_key(&c))
         {
-            if (c == 'q') return 0;
-            if (c == ' ') jump_pressed = true;
+            if (c == 'q')
+                return 0;
+            if (c == ' ')
+                jump_pressed = true;
 
             if (c == 'r')
             {
@@ -325,16 +365,20 @@ int main(void)
         if (!game_over)
         {
             // invincibility countdown
-            if (inv_frames > 0) inv_frames--;
+            if (inv_frames > 0)
+                inv_frames--;
 
             // jump（你說重力參數不用改：保留 grav_tick 每兩幀加一次重力）
             if (jump_pressed && jumps_left > 0)
             {
                 jumping = true;
 
-                if (jumps_left == 3) vy = -3;       // 第一次
-                else if (jumps_left == 2) vy = -5;  // 第二次
-                else vy = -7;                        // 第三次
+                if (jumps_left == 3)
+                    vy = -3; // 第一次
+                else if (jumps_left == 2)
+                    vy = -5; // 第二次
+                else
+                    vy = -7; // 第三次
 
                 jumps_left--;
             }
@@ -344,7 +388,8 @@ int main(void)
             {
                 dino_top_y += vy;
                 grav_tick++;
-                if (grav_tick % 2 == 0) vy += 1;
+                if (grav_tick % 2 == 0)
+                    vy += 1;
 
                 int dino_bottom_y = dino_top_y + (DINO_H - 1);
                 if (dino_bottom_y >= GROUND_Y)
@@ -385,7 +430,8 @@ int main(void)
             }
 
             // cloud move (slow)
-            if (score % 3 == 0) cloud_x -= 1;
+            if (score % 3 == 0)
+                cloud_x -= 1;
             if (cloud_x + CLOUD_W < 0)
             {
                 cloud_x = W;
@@ -422,7 +468,8 @@ int main(void)
                 {
                     lives--;
                     inv_frames = INVINCIBLE_FRAMES;
-                    if (lives <= 0) game_over = true;
+                    if (lives <= 0)
+                        game_over = true;
                 }
             }
 
@@ -432,7 +479,8 @@ int main(void)
             // speed up as score increases
             int speed_level = score / 100;
             frame_us = 60000 - speed_level * 3000;
-            if (frame_us < 25000) frame_us = 25000;
+            if (frame_us < 25000)
+                frame_us = 25000;
         }
 
         draw(dino_top_y,
