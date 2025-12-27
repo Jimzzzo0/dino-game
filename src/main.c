@@ -214,13 +214,13 @@ int main(void) {
             // jump
             if (jump_pressed && !jumping) {
                 jumping = true;
-                vy = -4;
+                vy = -5;
             }
 
             // physics
             if (jumping) {
                 dino_top_y += vy;
-                vy += 1; // gravity
+                vy += 0.7; // gravity
 
                 int dino_bottom_y = dino_top_y + (DINO_H - 1);
                 if (dino_bottom_y >= GROUND_Y) {
