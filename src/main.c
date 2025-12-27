@@ -189,6 +189,8 @@ int main(void) {
 
     const int frame_us = 60000; // ~16 FPS
 
+    int grav_tick = 0;
+
     while (1) {
         bool jump_pressed = false;
         char c;
@@ -220,13 +222,17 @@ int main(void) {
             // physics
             if (jumping) {
                 dino_top_y += vy;
-                vy += 0.7; // gravity
+                grav_tick++;
+                if (grav_tick % 2 == 0) vy += 1; // 每兩幀才加一次重力 => 跳更久更遠
+
 
                 int dino_bottom_y = dino_top_y + (DINO_H - 1);
                 if (dino_bottom_y >= GROUND_Y) {
                     dino_top_y = GROUND_Y - (DINO_H - 1);
                     vy = 0;
                     jumping = false;
+                    grav_tick = 0;
+
                 }
             }
 
