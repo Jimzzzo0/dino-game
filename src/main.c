@@ -12,6 +12,13 @@
 #include <stdlib.h>
 #include <time.h>
 
+// ---------------- x86 NASM functions (linked by GCC+NASM) ----------------
+// 下面這些函式「定義在 src/asm_funcs.asm」，C 這裡是宣告給 compiler 知道介面
+int asm_dec(int x);
+unsigned asm_add_u32(unsigned a, unsigned b);
+int asm_aabb_overlap(int dl,int dr,int dt,int db, int ol,int or_,int ot,int ob);
+
+
 // ---------------- Terminal raw + nonblocking ----------------
 static struct termios g_old_term;
 static int g_old_flags;
@@ -47,29 +54,29 @@ static bool poll_key(char *out) {
 
 // ---------------- Simple game state ----------------
 #define W 60
-#define H 14
+#define H 25
 #define GROUND_Y (H-2)
 
 // ---------- Dino Sprite (Large ASCII, monospace safe) ----------
 static const char* DINO_SPR[] = {
-    "########    ",
-    "### ######  ",
-    "########### ",
-    "########### ",
-    "#######___  ",
-    "#######     ",
-    "    ########",
-    "    #########@@#",   // <- 這行原本有▀▀█，我換成 @@# 避免寬字元
-    "    ########## ",
-    "@############# ",
-    " ############ ",
-    "   #########  ",
-    "     ##  ##   ",
-    "      #_  #__ ",
+    "########      ",
+    "### ######    ",
+    "###########   ",
+    "###########   ",
+    "#######___    ",
+    "#######       ",
+    "########      ",
+    "#########@@#  ",
+    "##########    ",
+    "@############ ",
+    "############  ",
+    "#########     ",
+    "##   ##       ",
+    "#_  #__       ",
 };
-
 static const int DINO_H = 14;
 static const int DINO_W = 14;
+
 
 
 
@@ -224,7 +231,9 @@ int main(void) {
             }
 
             // obstacle move
-            obs_x -= 1;
+            // obstacle move (x86 asm_dec)
+            obs_x = asm_dec(obs_x);
+
             if (obs_x <= 1) {
                 obs_x = W - 3;
                 obs = rand_cactus();
@@ -238,12 +247,18 @@ int main(void) {
             int obs_top = GROUND_Y - (obs.h - 1);
             int obs_bottom = GROUND_Y;
 
-            bool overlap_x = !(dino_right < obs_left || dino_left > obs_right);
-            bool overlap_y = !(dino_bottom < obs_top || dino_top > obs_bottom);
+            // AABB collision moved to x86 asm (asm_aabb_overlap returns 1 if overlap)
+            if (asm_aabb_overlap(
+            dino_left, dino_right, dino_top, dino_bottom,
+            obs_left,  obs_right,  obs_top,  obs_bottom
+            )) {
+            game_over = true;
+            }
 
-            if (overlap_x && overlap_y) game_over = true;
 
-            score += 1;
+            // score += 1 (x86 asm_add_u32)
+            score = asm_add_u32(score, 1);
+
         }
 
         draw(dino_top_y, obs_x, obs, score, game_over);
