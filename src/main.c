@@ -50,14 +50,27 @@ static bool poll_key(char *out) {
 #define H 14
 #define GROUND_Y (H-2)
 
-// ---------- Sprites (ASCII art) ----------
+// ---------- Dino Sprite (Large ASCII) ----------
 static const char* DINO_SPR[] = {
-    "  __ ",
-    " (oo)",
-    "/|__\\",
+    "████████    ",
+    "███ ██████  ",
+    "███████████ ",
+    "███████████ ",
+    "███████▄▄▄  ",
+    "███████     ",
+    "    ████████",
+    "    █████████▀▀█",
+    "    ██████████ ",
+    "▀█████████████ ",
+    " ████████████ ",
+    "   █████████  ",
+    "     ██  ██   ",
+    "      █▄  █▄▄ ",
 };
-static const int DINO_H = 3;
-static const int DINO_W = 5;
+
+static const int DINO_H = 14;
+static const int DINO_W = 14;
+
 
 // small cactus 3x3
 static const char* CACTUS_SPR_S[] = {
