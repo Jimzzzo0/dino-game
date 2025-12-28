@@ -14,23 +14,12 @@ global asm_aabb_overlap
 global asm_memset
 global asm_draw_ground
 
-; ------------------------------------------------------------
-; int asm_dec(int x) 
-; return x - 1 將輸入整數減 1 (x - 1)
-; args: x in edi 參數
-; ret : eax 回傳
-; ------------------------------------------------------------
+
 asm_dec:
     mov eax, edi ; 將參數 x (在 edi) 複製到回傳暫存器 eax
     sub eax, 1 ; eax = eax - 1 (減法運算)
     ret ; 返回，結果存於 eax
 
-; ------------------------------------------------------------
-; unsigned asm_add_u32(unsigned a, unsigned b)
-; return a + b (32-bit) 兩數相加
-; args: a in edi, b in esi 參數
-; ret : eax 回傳
-; ------------------------------------------------------------
 asm_add_u32:
     mov eax, edi ; 將第一個參數 a (edi) 放入 eax
     add eax, esi ; eax = eax + b (第二個參數在 esi)
@@ -69,7 +58,7 @@ asm_aabb_overlap:
     cmp edx, r11d     ; 比較 dt (edx) 與 ob (r11d)
     jg .no            ; 若 dt > ob，代表兩者垂直分離 -> 跳去 .no
 
-    4. 判定重疊，如果上述 4 個分離條件都不成立，代表兩個矩形有交集
+; 4. 判定重疊，如果上述 4 個分離條件都不成立，代表兩個矩形有交集
     mov eax, 1        ; 設定回傳值為 1 (True)
     ret               ; 返回
 .no:
