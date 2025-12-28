@@ -1,8 +1,5 @@
 // 413262304 周汶宸 413262330 劉品禎
-// Dino Game v0+ (terminal, Linux/WSL)
 // Controls: SPACE = jump, r = restart, q = quit
-// Build: make
-// Run:   make run
 
 #include <stdio.h>
 #include <unistd.h>
@@ -12,45 +9,46 @@
 #include <stdlib.h>
 #include <time.h>
 
-// ---------------- x86 NASM functions (linked by GCC+NASM) ----------------
-int asm_dec(int x);
-unsigned asm_add_u32(unsigned a, unsigned b);
-int asm_aabb_overlap(int dl, int dr, int dt, int db, int ol, int or_, int ot, int ob);
-void *asm_memset(void *dst, int value, long count);
-void asm_draw_ground(char *row, int ch, long n);
+//  x86 NASM functions
+int asm_dec(int x); //移動障礙物的 X 座標(向左)
+unsigned asm_add_u32(unsigned a, unsigned b); //遊戲計分
+int asm_aabb_overlap(int dl, int dr, int dt, int db, int ol, int or_, int ot, int ob); //碰撞檢測
+void *asm_memset(void *dst, int value, long count); //每一幀開始之前，快速將canvas全部填入空白字元
+void asm_draw_ground(char *row, int ch, long n); //繪製地板，將一列陣列填滿底線
 
-// ---------------- Terminal raw + nonblocking ----------------
+//終端機設定(用來保存原本的終端機設定，以便程式結束後恢復)
 static struct termios g_old_term;
 static int g_old_flags;
 
-static void term_restore(void)
+static void term_restore(void) // 程式結束時，讓終端機回到正常的輸入模式而且並顯示游標
 {
-    // leave alternate screen buffer
+    //離開 "Alternate Screen" （回到執行程式前的畫面）
     write(STDOUT_FILENO, "\033[?1049l", sizeof("\033[?1049l") - 1);
-
+    // 恢復輸入
     tcsetattr(STDIN_FILENO, TCSANOW, &g_old_term);
     fcntl(STDIN_FILENO, F_SETFL, g_old_flags);
-    (void)write(STDOUT_FILENO, "\033[?25h", 6); // show cursor
+    // 顯示游標
+    (void)write(STDOUT_FILENO, "\033[?25h", 6); 
 }
 
-static void term_setup(void)
+static void term_setup(void)//設定終端機為:遊戲模式
 {
     tcgetattr(STDIN_FILENO, &g_old_term);
     struct termios t = g_old_term;
-    t.c_lflag &= ~(ICANON | ECHO);
+    t.c_lflag &= ~(ICANON | ECHO); // 關閉緩衝輸入與回顯
     tcsetattr(STDIN_FILENO, TCSANOW, &t);
 
-    g_old_flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    g_old_flags = fcntl(STDIN_FILENO, F_GETFL, 0);// 設定Non-blocking IO
     fcntl(STDIN_FILENO, F_SETFL, g_old_flags | O_NONBLOCK);
 
-    (void)write(STDOUT_FILENO, "\033[?25l", 6); // hide cursor
-    // use alternate screen buffer (avoid scrollback spam)
+    (void)write(STDOUT_FILENO, "\033[?25l", 6); // 隱藏游標
+    // 開啟 "Alternate Screen" 緩衝區 (避免遊戲畫面洗版原本的終端機歷史紀錄)
     write(STDOUT_FILENO, "\033[?1049h\033[H", sizeof("\033[?1049h\033[H") - 1);
 
-    atexit(term_restore);
+    atexit(term_restore);// 結束時自動呼叫 restore
 }
 
-static bool poll_key(char *out)
+static bool poll_key(char *out) // 檢查是否有鍵盤輸入，如果有按鍵，回傳 true 並將字元存入 *out
 {
     char c;
     ssize_t n = read(STDIN_FILENO, &c, 1);
@@ -62,17 +60,17 @@ static bool poll_key(char *out)
     return false;
 }
 
-// ---------------- Simple game state ----------------
-#define W 60
+//遊戲參數(寬度/高度/地板所在的 Y 座標)
+#define W 60  
 #define H 25
 #define GROUND_Y (H - 2)
 
-// ---------- Lives / Invincibility ----------
+//初始生命&受傷後的無敵時間
 #define LIVES_INIT 3
 #define INVINCIBLE_FRAMES 12 // 約 0.7 秒（起始 60ms/frame 時）
 
-// ---------- Dino Sprite (Original style, smaller) ----------
-static const char *DINO_SPR[] = {
+//圖案
+static const char *DINO_SPR[] = {  // 恐龍圖案
     "#####     ",
     "## ###    ",
     "#####     ",
@@ -86,8 +84,7 @@ static const char *DINO_SPR[] = {
 static const int DINO_H = 9;
 static const int DINO_W = 10;
 
-// ---------- Cloud Sprite (background only) ----------
-static const char *CLOUD_SPR[] = {
+static const char *CLOUD_SPR[] = { // 雲朵圖案
     "   .--.   ",
     " .(    ). ",
     "(___.__)__",
@@ -95,8 +92,7 @@ static const char *CLOUD_SPR[] = {
 static const int CLOUD_H = 3;
 static const int CLOUD_W = 10;
 
-// small cactus 3x3
-static const char *CACTUS_SPR_S[] = {
+static const char *CACTUS_SPR_S[] = { // 小仙人掌
     " | ",
     "-+-",
     " | ",
@@ -104,8 +100,7 @@ static const char *CACTUS_SPR_S[] = {
 static const int CACTUS_S_H = 3;
 static const int CACTUS_S_W = 3;
 
-// big cactus 3x5
-static const char *CACTUS_SPR_B[] = {
+static const char *CACTUS_SPR_B[] = { // 大仙人掌
     "  |  ",
     "--+--",
     "  |  ",
@@ -113,8 +108,7 @@ static const char *CACTUS_SPR_B[] = {
 static const int CACTUS_B_H = 3;
 static const int CACTUS_B_W = 5;
 
-// triangle cone 4x5
-static const char *TRI_SPR[] = {
+static const char *TRI_SPR[] = { // 三角錐障礙物
     "  ^  ",
     " / \\ ",
     "/___\\",
@@ -123,13 +117,13 @@ static const char *TRI_SPR[] = {
 static const int TRI_H = 4;
 static const int TRI_W = 5;
 
-typedef struct
+typedef struct // 方便傳遞圖案資料
 {
     const char **spr;
     int w, h;
 } Sprite;
 
-static Sprite rand_cactus(void)
+static Sprite rand_cactus(void) // 隨機回傳大仙人掌或小仙人掌
 {
     if (rand() % 2 == 0)
     {
@@ -143,7 +137,10 @@ static Sprite rand_cactus(void)
     }
 }
 
-// Put a sprite onto canvas; ' ' in sprite is transparent
+// 將圖案繪製到Canvas上
+// canvas: 整個畫面的二維陣列
+// x0, y0: 圖案左上角座標
+// spr: 圖案內容 (空白字元 ' ' 當作透明處理)
 static void blit(char canvas[H][W], int x0, int y0, const char **spr, int sw, int sh)
 {
     for (int y = 0; y < sh; y++)
@@ -152,123 +149,110 @@ static void blit(char canvas[H][W], int x0, int y0, const char **spr, int sw, in
         {
             int cx = x0 + x;
             int cy = y0 + y;
-            if (cx < 0 || cx >= W || cy < 0 || cy >= H)
+            if (cx < 0 || cx >= W || cy < 0 || cy >= H) // 邊界檢查，超出畫面不畫
                 continue;
             char p = spr[y][x];
-            if (p != ' ')
+            if (p != ' ') // 透明度處理：不是空白才畫上去
                 canvas[cy][cx] = p;
         }
     }
 }
-
-// ✅ 像素級碰撞：只有在「同一格都不是空白」才算撞到
+//像素級碰撞檢測，計算兩個物件重疊的矩形區域，再逐格檢查是否雙方都有非空白字元
 static bool pixel_collide(int ax, int ay, const char **aspr, int aw, int ah,
-                          int bx, int by, const char **bspr, int bw, int bh)
+                          int bx, int by, const char **bspr, int bw, int bh) 
 {
+    // 計算重疊區域的邊界
     int left = (ax > bx) ? ax : bx;
     int right = ((ax + aw - 1) < (bx + bw - 1)) ? (ax + aw - 1) : (bx + bw - 1);
     int top = (ay > by) ? ay : by;
     int bottom = ((ay + ah - 1) < (by + bh - 1)) ? (ay + ah - 1) : (by + bh - 1);
 
-    if (left > right || top > bottom)
+    if (left > right || top > bottom)  // 沒有重疊
         return false;
 
-    for (int y = top; y <= bottom; y++)
+    for (int y = top; y <= bottom; y++) // 掃描重疊區域內的每一格
     {
         for (int x = left; x <= right; x++)
-        {
-            char ap = aspr[y - ay][x - ax];
+        { 
+            char ap = aspr[y - ay][x - ax]; // 取出物件 A 和 B 在該位置的字元
             char bp = bspr[y - by][x - bx];
-            if (ap != ' ' && bp != ' ')
+            if (ap != ' ' && bp != ' ') // 兩者都不是空白才算撞到
                 return true;
         }
     }
     return false;
 }
 
-// 顯示生命值（用 ♥ 比 emoji 更穩）
-static void print_lives(int lives)
+static void print_lives(int lives) // 顯示生命值
 {
     for (int i = 0; i < lives; i++)
         printf("♥");
 }
 
+// 繪圖函式：負責渲染每一幀畫面
 static void draw(int dino_top_y,
                  int obs_x, Sprite obs,
                  int obs2_x, Sprite obs2, bool obs2_active,
                  int cloud_x, int cloud_y,
                  unsigned score, int lives, int inv_frames,
-                 bool game_over)
+                 bool game_over) 
 {
-    // ✅ 每一幀清畫面 + 游標回左上，避免「每幀往下印」
-    write(STDOUT_FILENO, "\033[H", sizeof("\033[H") - 1);
+    write(STDOUT_FILENO, "\033[H", sizeof("\033[H") - 1); // 將游標移動到左上角 (0,0)，避免畫面閃爍
 
     char canvas[H][W];
+    asm_memset(&canvas[0][0], ' ', (long)(H * W)); //清空整個畫布
+    asm_draw_ground(&canvas[GROUND_Y][0], '_', (long)W); //畫出地板線條
+    blit(canvas, cloud_x, cloud_y, CLOUD_SPR, CLOUD_W, CLOUD_H); // 畫雲
 
-    // ✅ 用 x86 asm 清空整個畫布
-    asm_memset(&canvas[0][0], ' ', (long)(H * W));
-
-    // ✅ 用 x86 asm 畫地板
-    asm_draw_ground(&canvas[GROUND_Y][0], '_', (long)W);
-
-    // cloud (background)
-    blit(canvas, cloud_x, cloud_y, CLOUD_SPR, CLOUD_W, CLOUD_H);
-
-    // ground
-    for (int x = 0; x < W; x++)
+    for (int x = 0; x < W; x++) // 修正地板陣列資料 (要確保邏輯層與繪圖層一致)
         canvas[GROUND_Y][x] = '_';
 
-    // obstacle 1
-    int obs_top_y = GROUND_Y - (obs.h - 1);
+    int obs_top_y = GROUND_Y - (obs.h - 1); // 畫障礙物仙人掌
     blit(canvas, obs_x, obs_top_y, obs.spr, obs.w, obs.h);
 
-    // obstacle 2 (triangle)
-    if (obs2_active)
+    if (obs2_active) // 畫障礙物三角錐(若已啟動)
     {
         int obs2_top_y = GROUND_Y - (obs2.h - 1);
         blit(canvas, obs2_x, obs2_top_y, obs2.spr, obs2.w, obs2.h);
     }
 
-    // dino (無敵時閃爍)
-    bool draw_dino = true;
+    bool draw_dino = true; // 畫恐龍 (處理受傷無敵時的閃爍效果)
     if (inv_frames > 0)
-        draw_dino = (inv_frames % 2 == 0);
+        draw_dino = (inv_frames % 2 == 0); // 偶數幀才畫，製造閃爍的效果
 
     if (draw_dino)
         blit(canvas, 6, dino_top_y, DINO_SPR, DINO_W, DINO_H);
-
-    // print border
+    
+    // 輸出最終畫面到終端機 // 上邊框
     putchar('+');
     for (int x = 0; x < W; x++)
         putchar('-');
     puts("+");
-    for (int y = 0; y < H; y++)
+    for (int y = 0; y < H; y++) // 內容每一行
     {
         putchar('|');
         for (int x = 0; x < W; x++)
             putchar(canvas[y][x]);
         puts("|");
     }
-    putchar('+');
+    putchar('+'); // 下邊框
     for (int x = 0; x < W; x++)
         putchar('-');
     puts("+");
 
-    // --- HUD line (fixed width overwrite) ---
+    // HUD ：分數與生命 // 先印出佔位符，再用 \r回到行首覆寫，確保寬度一致
     char hud[160];
     int n = snprintf(hud, sizeof(hud),
                      "Score: %u   Lives: ", score);
 
     int pos = n;
     for (int i = 0; i < lives && pos < (int)sizeof(hud) - 1; i++)
-        hud[pos++] = '\x03'; // 先塞占位，等下我們直接用 printf 印 hearts（或你也可以直接塞 '♥'）
+        hud[pos++] = '\x03'; // 先塞占位字元，等下直接用 printf 印 hearts
 
     hud[pos] = '\0';
 
-    // 先把這行清空（回到行首 + 清到行尾）
+    // 清空當前行並印出 HUD（回到行首 + 清到行尾）
     printf("\r\033[K");
-
-    // 再印真正的 HUD（推薦：直接一次印完）
     printf("Score: %u   Lives: ", score);
     print_lives(lives);
 
@@ -279,7 +263,7 @@ static void draw(int dino_top_y,
 
     if (game_over)
         puts("GAME OVER! Press 'r' to restart.");
-    fflush(stdout);
+    fflush(stdout); // 強制刷新輸出緩衝區，確保畫面立即顯示
 }
 
 int main(void)
