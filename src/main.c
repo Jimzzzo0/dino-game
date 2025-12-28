@@ -270,76 +270,63 @@ int main(void)
 {
     srand((unsigned)time(NULL));
 
-    // clear screen once
-    printf("\033[2J\033[H");
+    printf("\033[2J\033[H"); // 程式開始前先清空一次螢幕
     fflush(stdout);
 
-    term_setup();
-
-    // Dino
+    term_setup(); // 進入遊戲模式終端設定
+     // 遊戲變數初始化
     int dino_top_y = GROUND_Y - (DINO_H - 1);
-    int vy = 0;
-    bool jumping = false;
+    int vy = 0; // Y軸速度
+    bool jumping = false; // 是否在跳躍中
 
-    // ✅ 三段式跳躍
-    int jumps_left = 3;
+    int jumps_left = 3; // 三段式跳躍計數器
 
-    // Obstacle 1
-    int obs_x = W - 3;
+    int obs_x = W - 3; // 障礙物(仙人掌)初始化
     Sprite obs = rand_cactus();
 
-    // Obstacle 2 (triangle), activates after score > 500
+    // 障礙物(三角錐) 初始化，分數 > 500 後才會出現
     int obs2_x = W + 20;
     Sprite obs2 = {TRI_SPR, TRI_W, TRI_H};
     bool obs2_active = false;
 
-    // Cloud
+    // 雲朵
     int cloud_x = W - 12;
     int cloud_y = 1 + rand() % 3; // 1~3
 
-    // Lives + invincibility
+    // 生命與狀態、分數
     int lives = LIVES_INIT;
     int inv_frames = 0;
-
     unsigned score = 0;
     bool game_over = false;
 
-    int frame_us = 60000; // ~16 FPS 起步
-    int grav_tick = 0;
+    int frame_us = 60000; // 每幀微秒數 (控制 FPS，初始約 16 FPS)
+    int grav_tick = 0; // 用來控制重力加速度頻率
 
-    while (1)
+    while (1) // 遊戲主迴圈
     {
         bool jump_pressed = false;
         char c;
 
-        while (poll_key(&c))
+        while (poll_key(&c)) // 處理輸入
         {
-            if (c == 'q')
-                return 0;
-            if (c == ' ')
-                jump_pressed = true;
+            if (c == 'q') return 0; // 離開
+            if (c == ' ') jump_pressed = true; // 跳躍
 
-            if (c == 'r')
-            {
-                dino_top_y = GROUND_Y - (DINO_H - 1);
+            if (c == 'r') // 重新開始
+            {   // 重置所有變數
+                dino_top_y = GROUND_Y - (DINO_H - 1); 
                 vy = 0;
                 jumping = false;
                 grav_tick = 0;
-
                 jumps_left = 3;
-
                 obs_x = W - 3;
                 obs = rand_cactus();
-
                 obs2_x = W + 20;
                 obs2_active = false;
-
                 cloud_x = W - 12;
                 cloud_y = 1 + rand() % 3;
-
                 lives = LIVES_INIT;
                 inv_frames = 0;
-
                 score = 0;
                 frame_us = 60000;
                 game_over = false;
@@ -348,16 +335,15 @@ int main(void)
 
         if (!game_over)
         {
-            // invincibility countdown
+            // 更新無敵時間
             if (inv_frames > 0)
                 inv_frames--;
-
-            // jump（你說重力參數不用改：保留 grav_tick 每兩幀加一次重力）
+            // 跳躍邏輯
             if (jump_pressed && jumps_left > 0)
             {
                 jumping = true;
 
-                if (jumps_left == 3)
+                if (jumps_left == 3) // 根據剩餘跳躍次數給予不同的初速度 (多段跳)
                     vy = -3; // 第一次
                 else if (jumps_left == 2)
                     vy = -5; // 第二次
@@ -367,41 +353,37 @@ int main(void)
                 jumps_left--;
             }
 
-            // physics
+            // 物理引擎 (重力與移動)
             if (jumping)
             {
-                dino_top_y += vy;
+                dino_top_y += vy;// 更新位置
                 grav_tick++;
-                if (grav_tick % 2 == 0)
+                if (grav_tick % 2 == 0) // 每 2 幀增加一次重力 (模擬重力加速度)
                     vy += 1;
 
-                int dino_bottom_y = dino_top_y + (DINO_H - 1);
+                int dino_bottom_y = dino_top_y + (DINO_H - 1); // 地板碰撞檢測 (落地)
                 if (dino_bottom_y >= GROUND_Y)
                 {
-                    dino_top_y = GROUND_Y - (DINO_H - 1);
+                    dino_top_y = GROUND_Y - (DINO_H - 1); // 修正位置
                     vy = 0;
                     jumping = false;
                     grav_tick = 0;
-                    jumps_left = 3; // 落地補滿
+                    jumps_left = 3; // 落地後補滿跳躍次數
                 }
             }
-
-            // obstacle 1 move (x86)
-            obs_x = asm_dec(obs_x);
-            if (obs_x <= 1)
+            // 障礙物移動 (x86 ASM 函式) 
+            obs_x = asm_dec(obs_x); // asm_dec(x) 等同於 x = x - 1
+            if (obs_x <= 1) // 障礙物超出左邊界，重置到右邊
             {
                 obs_x = W - 3;
                 obs = rand_cactus();
             }
-
-            // activate obstacle 2 after score > 500
+            // 啟動第二個障礙物
             if (!obs2_active && score > 500)
             {
                 obs2_active = true;
                 obs2_x = W + 20;
             }
-
-            // obstacle 2 move (x86)
             if (obs2_active)
             {
                 obs2_x = asm_dec(obs2_x);
@@ -412,8 +394,7 @@ int main(void)
                     obs2_x = W + gap;
                 }
             }
-
-            // cloud move (slow)
+            // 背景雲朵移動 (速度較慢)
             if (score % 3 == 0)
                 cloud_x -= 1;
             if (cloud_x + CLOUD_W < 0)
@@ -421,24 +402,23 @@ int main(void)
                 cloud_x = W;
                 cloud_y = 1 + rand() % 3;
             }
-
-            // collision only when invincible is off
-            if (inv_frames == 0)
+            // 碰撞檢測 
+            if (inv_frames == 0) // 無敵狀態不檢測
             {
-                int dino_x = 6;
+                int dino_x = 6; //恐龍的位置
                 int dino_y = dino_top_y;
 
-                int obs1_x = obs_x;
+                int obs1_x = obs_x; //障礙物的位置
                 int obs1_y = GROUND_Y - (obs.h - 1);
 
-                bool hit = false;
-
+                bool hit = false; //初始化碰撞狀態
+                
                 if (pixel_collide(dino_x, dino_y, DINO_SPR, DINO_W, DINO_H,
-                                  obs1_x, obs1_y, obs.spr, obs.w, obs.h))
+                                  obs1_x, obs1_y, obs.spr, obs.w, obs.h)) // 檢查障礙物 1
                 {
                     hit = true;
                 }
-                else if (obs2_active)
+                else if (obs2_active)// 檢查障礙物 2
                 {
                     int obs2_y = GROUND_Y - (obs2.h - 1);
                     if (pixel_collide(dino_x, dino_y, DINO_SPR, DINO_W, DINO_H,
@@ -451,29 +431,26 @@ int main(void)
                 if (hit)
                 {
                     lives--;
-                    inv_frames = INVINCIBLE_FRAMES;
+                    inv_frames = INVINCIBLE_FRAMES; // 給予短暫無敵
                     if (lives <= 0)
                         game_over = true;
                 }
             }
+            score = asm_add_u32(score, 1); // 分數更新 (x86 ASM 函式) 
 
-            // score += 1 (x86)
-            score = asm_add_u32(score, 1);
-
-            // speed up as score increases
-            int speed_level = score / 100;
+            int speed_level = score / 100; // 難度調整 (隨分數增加加快遊戲速度) 
             frame_us = 60000 - speed_level * 3000;
             if (frame_us < 25000)
-                frame_us = 25000;
+                frame_us = 25000; // 速度上限
         }
-
+        // 呼叫繪圖
         draw(dino_top_y,
              obs_x, obs,
              obs2_x, obs2, obs2_active,
              cloud_x, cloud_y,
              score, lives, inv_frames,
              game_over);
-
+        // 控制 FPS
         usleep(frame_us);
     }
 }
