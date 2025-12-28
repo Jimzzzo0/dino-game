@@ -1,3 +1,4 @@
+;
 ;數值運算、遊戲邏輯、碰撞判定
 ; src/asm_funcs.asm
 ; NASM x86-64 (System V AMD64 ABI), ELF64
